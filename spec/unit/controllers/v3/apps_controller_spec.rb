@@ -9,6 +9,7 @@ module VCAP::CloudController
     let(:app_model) { nil }
     let(:app_presenter) { double(:app_presenter) }
     let(:membership) { double(:membership) }
+    let(:runners) { double(:runners, runner_for_app: double(:runner, start: nil)) }
     let(:apps_controller) do
       AppsV3Controller.new(
         {},
@@ -25,6 +26,7 @@ module VCAP::CloudController
     let(:app_response) { 'app_response_body' }
 
     before do
+      allow(CloudController::DependencyLocator).to receive(:runners).and_return(runners)
       allow(logger).to receive(:debug)
       allow(apps_controller).to receive(:membership).and_return(membership)
       allow(apps_controller).to receive(:current_user).and_return(User.make)

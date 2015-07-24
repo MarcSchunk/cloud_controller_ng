@@ -19,6 +19,15 @@ module VCAP::CloudController::Diego
       end
     end
 
+    describe 'from_process' do
+      let(:app) { VCAP::CloudController::AppModel.make }
+      let(:process) { VCAP::CloudController::App.make(app: app) }
+
+      it 'returns the appropriate versioned guid for the process' do
+        expect(ProcessGuid.from_process(process)).to eq("#{process.app.guid}-#{process.guid}")
+      end
+    end
+
     describe 'app_guid' do
       it 'it returns the app guid from the versioned guid' do
         expect(ProcessGuid.app_guid(ProcessGuid.from_app(app))).to eq(app.guid)

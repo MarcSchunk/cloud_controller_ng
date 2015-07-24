@@ -48,6 +48,7 @@ module VCAP::CloudController
         buildpack: buildpack,
         custom_buildpacks_enabled?: custom_buildpacks_enabled?,
         buildpack_specified?: false,
+        v3?: false
       )
     end
 
@@ -106,16 +107,26 @@ module VCAP::CloudController
             expect(runner).to be_a(Diego::Runner)
           end
         end
+      end
 
-        context 'when the app is not configured to run on Diego' do
-          before do
-            allow(app).to receive(:diego?).and_return(false)
-          end
+      context 'when the app is not configured to run on Diego' do
+        before do
+          allow(app).to receive(:diego?).and_return(false)
+        end
 
-          it 'finds a DEA backend' do
-            expect(runners).to receive(:dea_runner).with(app).and_call_original
-            expect(runner).to be_a(Dea::Runner)
-          end
+        it 'finds a DEA backend' do
+          expect(runners).to receive(:dea_runner).with(app).and_call_original
+          expect(runner).to be_a(Dea::Runner)
+        end
+      end
+
+      context 'when the app is a v3 app' do
+        let(:app) { AppModel.make }
+
+        it 'finds a v3 diego backend' do
+          expect(runner).to be_a(Diego::Runner)
+          expect(runner.messenger).to be_a(Diego::V3::Messenger)
+          expect(runner.protocol).to be_a(Diego::V3::Protocol)
         end
       end
     end

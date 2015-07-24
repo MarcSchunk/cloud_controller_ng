@@ -10,11 +10,30 @@ module VCAP::CloudController
     include VCAP::Errors
 
     DROPLET_V2_PATH = '/internal/v2/droplets'
+    DROPLET_V3_PATH = '/internal/v3/droplets'
 
-    # Endpoint does its own basic auth
     allow_unauthenticated_access
 
     attr_reader :blobstore
+
+    get "#{DROPLET_V3_PATH}/:guid/download", :download_v3_droplet
+    def download_v3_droplet(guid)
+      droplet = DropletModel.where(guid: guid).eager(:app).all.first
+      raise ApiError.new_from_details('NotFound', guid) unless droplet
+
+      blob_name = 'droplet'
+
+      if @blobstore.local?
+        blob = @blobstore.blob(droplet.blobstore_key)
+
+        # @missing_blob_handler.handle_missing_blob!(droplet.blobstore_key, blob_name) unless droplet && blob
+        @blob_sender.send_blob(guid, blob_name, blob, self)
+      else
+        url = @blobstore_url_generator.v3_droplet_download_url(droplet.app)
+        # @missing_blob_handler.handle_missing_blob!(droplet.blobstore_key, blob_name) unless url
+        redirect url
+      end
+    end
 
     get "#{DROPLET_V2_PATH}/:guid/:droplet_hash/download", :download_droplet
     def download_droplet(guid, droplet_hash)

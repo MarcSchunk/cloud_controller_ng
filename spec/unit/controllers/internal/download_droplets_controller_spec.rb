@@ -141,5 +141,70 @@ module VCAP::CloudController
         end
       end
     end
+
+    describe 'GET /internal/v3/droplets/:droplet_guid/download' do
+      before do
+        TestConfig.override(staging_config)
+      end
+
+      let!(:droplet) { DropletModel.make }
+
+      def upload_droplet
+        droplet_file = Tempfile.new(app_obj.guid)
+        droplet_file.write('droplet contents')
+        droplet_file.close
+
+        VCAP::CloudController::Jobs::V3::DropletUpload.new(droplet_file.path, droplet.guid).perform
+      end
+
+      context 'when using with nginx' do
+        before { TestConfig.override(staging_config) }
+
+        it 'succeeds for valid droplets' do
+          upload_droplet
+
+          get "/internal/v3/droplets/#{droplet.guid}/download"
+          expect(last_response.status).to eq(200)
+          expect(last_response.headers['X-Accel-Redirect']).to match("/cc-droplets/.*/#{droplet.blobstore_key}")
+
+        end
+      end
+
+      context 'when not using with nginx' do
+        before { TestConfig.override(staging_config.merge(nginx: { use_nginx: false })) }
+
+        it 'should return the droplet' do
+          upload_droplet
+
+          get "/internal/v3/droplets/#{droplet.guid}/download"
+          expect(last_response.status).to eq(200)
+          expect(last_response.body).to eq('droplet contents')
+        end
+      end
+
+      context 'when the blobstore is local and the blob is missing' do
+        it 'handles missing blobs' do
+          fail
+        end
+      end
+
+      context 'when the blobstore is not local' do
+        before do
+          allow_any_instance_of(CloudController::Blobstore::Client).to receive(:local?).and_return(false)
+        end
+
+        it 'should redirect to the url provided by the blobstore_url_generator' do
+          allow_any_instance_of(CloudController::Blobstore::UrlGenerator).to receive(:v3_droplet_download_url).and_return('http://example.com/somewhere/else')
+          get "/internal/v3/droplets/#{droplet.guid}/download"
+          expect(last_response).to be_redirect
+          expect(last_response.header['Location']).to eq('http://example.com/somewhere/else')
+        end
+
+        it 'handles missing blobs' do
+          fail
+        end
+
+      end
+    end
   end
 end

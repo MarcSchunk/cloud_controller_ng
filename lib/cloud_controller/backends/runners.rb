@@ -4,6 +4,8 @@ require 'cloud_controller/diego/process_guid'
 require 'cloud_controller/diego/traditional/protocol'
 require 'cloud_controller/diego/docker/protocol'
 require 'cloud_controller/diego/common/protocol'
+require 'cloud_controller/diego/v3/protocol'
+require 'cloud_controller/diego/v3/messenger'
 
 module VCAP::CloudController
   class Runners
@@ -15,7 +17,13 @@ module VCAP::CloudController
     end
 
     def runner_for_app(app)
-      app.diego? ? diego_runner(app) : dea_runner(app)
+      if app.v3?
+        diego_v3_runner(app)
+      elsif app.diego?
+        diego_runner(app)
+      else
+        dea_runner(app)
+      end
     end
 
     def run_with_diego?(app)
@@ -104,6 +112,15 @@ module VCAP::CloudController
     end
 
     private
+
+    def diego_v3_runner(app)
+      dependency_locator = CloudController::DependencyLocator.instance
+      nsync_client = dependency_locator.nsync_client
+      stager_client = dependency_locator.stager_client
+      protocol = Diego::V3::Protocol.new(dependency_locator.blobstore_url_generator(true), Diego::Common::Protocol.new)
+      messenger = Diego::V3::Messenger.new(stager_client, nsync_client, protocol)
+      Diego::Runner.new(app, messenger, protocol, @config[:default_health_check_timeout])
+    end
 
     def diego_runner(app)
       app.docker_image.present? ? diego_docker_runner(app) : diego_traditional_runner(app)

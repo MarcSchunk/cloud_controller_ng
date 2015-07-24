@@ -25,7 +25,7 @@
 
 1. Upload your bits to your new package ([docs](http://apidocs.cloudfoundry.org/release-candidate/packages_(experimental)/upload_bits_for_a_package_of_type_bits.html)):
 
-  ``curl -s https://api.example.com/v3/packages/[your-package-guid]/upload -F bits=@"my-app.zip" -H "Authorization: `cf oauth-token | grep bearer`"``
+  ``curl -v https://api.example.com/v3/packages/[your-package-guid]/upload -F bits=@"my-app.zip" -H "Authorization: `cf oauth-token | grep bearer`"``
 
 1. Stage your package and create a droplet ([docs](http://apidocs.cloudfoundry.org/release-candidate/packages_(experimental)/stage_a_package.html)):
 

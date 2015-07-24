@@ -607,6 +607,10 @@ module VCAP::CloudController
       end
     end
 
+    def v3?
+      false
+    end
+
     private
 
     def mark_routes_changed(_=nil)

@@ -25,6 +25,7 @@ module VCAP::CloudController
 
     def inject_dependencies(dependencies)
       @app_presenter = dependencies[:app_presenter]
+      @runners = CloudController::DependencyLocator.instance.runners
     end
 
     get '/v3/apps', :list
@@ -126,7 +127,7 @@ module VCAP::CloudController
       app_not_found! if app.nil? || !can_read?(space.guid, org.guid)
       unauthorized! unless can_start?(space.guid)
 
-      AppStart.new(current_user, current_user_email).start(app)
+      AppStart.new(current_user, current_user_email, @runners).start(app)
       [HTTP::OK, @app_presenter.present_json(app)]
     rescue AppStart::DropletNotFound
       droplet_not_found!

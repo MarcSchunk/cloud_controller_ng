@@ -1,6 +1,8 @@
 module VCAP::CloudController
   module Diego
     class Runner
+      attr_reader :messenger, :protocol
+
       def initialize(app, messenger, protocol, default_health_check_timeout)
         @app = app
         @messenger = messenger

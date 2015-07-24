@@ -242,18 +242,45 @@ module CloudController
         end
 
         context 'download unauthorized droplets permalink' do
-          it 'gives out a url to the cloud controller' do
-            expect(url_generator.unauthorized_perma_droplet_download_url(app)).to eql("http://api.example.com:9292/internal/v2/droplets/#{app.guid}/#{app.droplet_hash}/download")
+          context 'when the app is a v2 app' do
+            it 'gives out a url to the cloud controller' do
+              expect(url_generator.unauthorized_perma_droplet_download_url(app)).to eql("http://api.example.com:9292/internal/v2/droplets/#{app.guid}/#{app.droplet_hash}/download")
+            end
+
+            context 'when no droplet_hash' do
+              before do
+                app.droplet_hash = nil
+                app.save
+              end
+
+              it 'returns nil if no droplet_hash' do
+                expect(url_generator.unauthorized_perma_droplet_download_url(app)).to be_nil
+              end
+            end
           end
 
-          context 'when no droplet_hash' do
+          context 'when the app is a v3 app' do
+            let(:app) { VCAP::CloudController::AppModel.make }
+            let(:droplet) { VCAP::CloudController::DropletModel.make(app: app, state: 'STAGED') }
+
             before do
-              app.droplet_hash = nil
+              app.droplet = droplet
               app.save
             end
 
-            it 'returns nil if no droplet_hash' do
-              expect(url_generator.unauthorized_perma_droplet_download_url(app)).to be_nil
+            it 'gives out a url to the cloud controller' do
+              expect(url_generator.unauthorized_perma_droplet_download_url(app)).to eql("http://api.example.com:9292/internal/v3/droplets/#{droplet.guid}/download")
+            end
+
+            context 'when there is not a current droplet' do
+              before do
+                app.droplet = nil
+                app.save
+              end
+
+              it 'returns nil' do
+                expect(url_generator.unauthorized_perma_droplet_download_url(app)).to be_nil
+              end
             end
           end
         end

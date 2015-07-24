@@ -40,6 +40,10 @@ module VCAP::CloudController
       }
     end
 
+    def v3?
+      true
+    end
+
     private
 
     def validate_environment_variables
