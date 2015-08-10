@@ -271,9 +271,8 @@ module VCAP::CloudController
             body = { token_type: '', access_token: '' }.to_json
             stub_request(:post, 'http://cc-service-dashboards:some-sekret@localhost:8080/uaa/oauth/token').
               to_return(status: 200, body: body, headers: { content_type: 'application/json' })
-            body2 = { id: '', client_id: '' }.to_json
             stub_request(:get, 'http://localhost:8080/uaa/oauth/clients/client-id-1').
-              to_return(status: 200, body: body2, headers: { content_type: 'application/json' })
+              to_return(status: 404, body: nil, headers: { content_type: 'application/json' })
             stub_request(:post, 'http://localhost:8080/uaa/oauth/clients/tx/modify').
               to_return(status: 200, body: '', headers: {})
           end
@@ -284,7 +283,7 @@ module VCAP::CloudController
                     accepts_incomplete: false
             )
 
-            expect(service_instance.service_instance_dashboard_client.uaa_id).to eq('client-id-1')
+            expect(service_instance.service_dashboard_client.uaa_id).to eq('client-id-1')
 
             expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
             expect(last_response).to have_status_code(201)
@@ -323,7 +322,7 @@ module VCAP::CloudController
                 accepts_incomplete: false
               )
 
-              expect(service_instance.service_instance_dashboard_client).to be_nil
+              expect(service_instance.service_dashboard_client).to be_nil
               expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
 
               expect(decoded_response['entity']).to be_nil
@@ -612,9 +611,8 @@ module VCAP::CloudController
               body = { token_type: '', access_token: '' }.to_json
               stub_request(:post, 'http://cc-service-dashboards:some-sekret@localhost:8080/uaa/oauth/token').
                 to_return(status: 200, body: body, headers: { content_type: 'application/json' })
-              body2 = { id: '', client_id: '' }.to_json
               stub_request(:get, 'http://localhost:8080/uaa/oauth/clients/client-id-1').
-                to_return(status: 200, body: body2, headers: { content_type: 'application/json' })
+                to_return(status: 404, body: nil, headers: { content_type: 'application/json' })
               stub_request(:post, 'http://localhost:8080/uaa/oauth/clients/tx/modify').
                 to_return(status: 200, body: '', headers: {})
             end
@@ -622,7 +620,7 @@ module VCAP::CloudController
             it 'provisions a service instance' do
               service_instance = create_managed_service_instance
 
-              expect(service_instance.service_instance_dashboard_client.uaa_id).to eq('client-id-1')
+              expect(service_instance.service_dashboard_client.uaa_id).to eq('client-id-1')
 
               expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
               expect(last_response).to have_status_code(202)
@@ -648,7 +646,7 @@ module VCAP::CloudController
               it 'rejects the service instance by initiating orphan mitigation' do
                 service_instance = create_managed_service_instance
 
-                expect(service_instance.service_instance_dashboard_client).to be_nil
+                expect(service_instance.service_dashboard_client).to be_nil
                 expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
 
                 expect(decoded_response['entity']).to be_nil

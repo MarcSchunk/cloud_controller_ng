@@ -10,8 +10,7 @@ module VCAP::Services::SSO
 
     context 'for service brokers' do
       let(:service_broker) { VCAP::CloudController::ServiceBroker.make }
-      let(:dashboard_client) {  VCAP::CloudController::ServiceDashboardClient }
-      let(:manager) { DashboardClientManager.new(service_broker, services_event_repository, dashboard_client) }
+      let(:manager) { DashboardClientManager.new(service_broker, services_event_repository) }
 
       describe '#synchronize_clients_with_catalog' do
         let(:dashboard_client_attrs_1) do
@@ -127,7 +126,7 @@ module VCAP::Services::SSO
               before do
                 VCAP::CloudController::ServiceDashboardClient.new(
                   uaa_id: catalog_service.dashboard_client['id'],
-                  service_broker: service_broker
+                  claimant_guid: service_broker.guid
                 ).save
               end
 
@@ -227,12 +226,12 @@ module VCAP::Services::SSO
 
               VCAP::CloudController::ServiceDashboardClient.new(
                 uaa_id: unused_id,
-                service_broker: service_broker
+                claimant_guid: service_broker.guid
               ).save
 
               VCAP::CloudController::ServiceDashboardClient.new(
                 uaa_id: dashboard_client_attrs_1['id'],
-                service_broker: service_broker
+                claimant_guid: service_broker.guid
               ).save
             end
 
@@ -274,11 +273,9 @@ module VCAP::Services::SSO
           end
 
           context 'when a different broker has already claimed the requested UAA client' do
-            let(:other_broker) { double(:other_broker, id: SecureRandom.uuid) }
+            let(:other_broker) { double(:other_broker, guid: SecureRandom.uuid) }
             let(:existing_client) do
-              double(:client,
-                uaa_id: dashboard_client_attrs_1['id'],
-                service_broker: other_broker)
+              VCAP::CloudController::ServiceDashboardClient.make(uaa_id: dashboard_client_attrs_1['id'], claimant_guid: other_broker.guid)
             end
 
             before do
@@ -326,7 +323,7 @@ module VCAP::Services::SSO
 
               VCAP::CloudController::ServiceDashboardClient.new(
                 uaa_id: unused_id,
-                service_broker: service_broker
+                claimant_guid: service_broker.guid
               ).save
             end
 
@@ -347,13 +344,13 @@ module VCAP::Services::SSO
             it 'does not modify any of the claims' do
               VCAP::CloudController::ServiceDashboardClient.new(
                 uaa_id: dashboard_client_attrs_2['id'],
-                service_broker: nil
+                claimant_guid: nil
               ).save
 
               manager.synchronize_clients_with_catalog(catalog) rescue nil
 
               dashboard_client = VCAP::CloudController::ServiceDashboardClient.find(uaa_id: dashboard_client_attrs_2['id'])
-              expect(dashboard_client.service_broker).to be_nil
+              expect(dashboard_client.claimant_guid).to be_nil
             end
 
             it 'raises a ServiceBrokerDashboardClientFailure error' do
@@ -434,12 +431,12 @@ module VCAP::Services::SSO
 
           VCAP::CloudController::ServiceDashboardClient.new(
             uaa_id: client_to_delete_1,
-            service_broker: service_broker
+            claimant_guid: service_broker.guid
           ).save
 
           VCAP::CloudController::ServiceDashboardClient.new(
             uaa_id: client_to_delete_2,
-            service_broker: service_broker
+            claimant_guid: service_broker.guid
           ).save
 
           allow(client_manager).to receive(:get_clients).and_return(
@@ -462,11 +459,11 @@ module VCAP::Services::SSO
         end
 
         it 'deletes the claims for the service broker in CC' do
-          expect(VCAP::CloudController::ServiceDashboardClient.find_claimed_client(service_broker).count).to eq(2)
+          expect(VCAP::CloudController::ServiceDashboardClient.find_clients_claimed_by(service_broker).count).to eq(2)
 
           manager.remove_clients_for_broker
 
-          expect(VCAP::CloudController::ServiceDashboardClient.find_claimed_client(service_broker).count).to eq(0)
+          expect(VCAP::CloudController::ServiceDashboardClient.find_clients_claimed_by(service_broker).count).to eq(0)
         end
 
         it 'records a delete event for each dashboard client' do
@@ -501,11 +498,11 @@ module VCAP::Services::SSO
           end
 
           it 'does not delete any clients claimed in CC' do
-            expect(VCAP::CloudController::ServiceDashboardClient.find_claimed_client(service_broker).count).to eq(2)
+            expect(VCAP::CloudController::ServiceDashboardClient.find_clients_claimed_by(service_broker).count).to eq(2)
 
             manager.remove_clients_for_broker rescue nil
 
-            expect(VCAP::CloudController::ServiceDashboardClient.find_claimed_client(service_broker).count).to eq(2)
+            expect(VCAP::CloudController::ServiceDashboardClient.find_clients_claimed_by(service_broker).count).to eq(2)
           end
 
           it 'does not record any events' do
@@ -530,7 +527,7 @@ module VCAP::Services::SSO
 
         context 'when removing CC claims raises an exception' do
           before do
-            allow(VCAP::CloudController::ServiceDashboardClient).to receive(:release_client).and_raise('test error')
+            allow(VCAP::CloudController::ServiceDashboardClient).to receive(:remove_claim).and_raise('test error')
           end
 
           it 'reraises the error' do
@@ -561,11 +558,11 @@ module VCAP::Services::SSO
           end
 
           it 'does not delete any clients claimed in CC' do
-            expect(VCAP::CloudController::ServiceDashboardClient.find_claimed_client(service_broker).count).to eq(2)
+            expect(VCAP::CloudController::ServiceDashboardClient.find_clients_claimed_by(service_broker).count).to eq(2)
 
             manager.remove_clients_for_broker rescue nil
 
-            expect(VCAP::CloudController::ServiceDashboardClient.find_claimed_client(service_broker).count).to eq(2)
+            expect(VCAP::CloudController::ServiceDashboardClient.find_clients_claimed_by(service_broker).count).to eq(2)
           end
         end
       end
@@ -574,8 +571,7 @@ module VCAP::Services::SSO
     context 'for service instances' do
       let(:service_instance) {  VCAP::CloudController::ManagedServiceInstance.make }
       let(:service_broker) {  service_instance.service_plan.service.service_broker }
-      let(:dashboard_client) {  VCAP::CloudController::ServiceInstanceDashboardClient }
-      let(:manager) { DashboardClientManager.new(service_instance, services_event_repository, dashboard_client) }
+      let(:manager) { DashboardClientManager.new(service_instance, services_event_repository) }
       let(:client_id) { 'client-id-1' }
       let(:client_info) do
         {
@@ -588,11 +584,14 @@ module VCAP::Services::SSO
       describe '#add_client_for_instance' do
         before do
           allow(VCAP::Services::SSO::UAA::UaaClientManager).to receive(:new).and_return(client_manager)
-          allow(client_manager).to receive(:get_clients).and_return([])
           allow(client_manager).to receive(:modify_transaction)
         end
 
-        context 'when the client does not already exist in UAA' do
+        context 'when the client does NOT exist in UAA' do
+          before do
+            allow(client_manager).to receive(:get_clients).and_return([])
+          end
+
           it 'creates a client in UAA' do
             expect(client_manager).to receive(:modify_transaction) do |changeset|
               expect(changeset.length).to eq 1
@@ -600,15 +599,15 @@ module VCAP::Services::SSO
               expect(changeset[0].client_attrs).to eq client_info
             end
 
-            manager.add_client_for_instance client_info
+            manager.add_client_for_instance(client_info)
           end
 
           it 'claims the client for the service instance' do
             expect {
               manager.add_client_for_instance client_info
-            }.to change { VCAP::CloudController::ServiceInstanceDashboardClient.count }.by 1
+            }.to change { VCAP::CloudController::ServiceDashboardClient.count }.by 1
 
-            expect(VCAP::CloudController::ServiceInstanceDashboardClient.find(uaa_id: client_info['id'])).to_not be_nil
+            expect(VCAP::CloudController::ServiceDashboardClient.find(uaa_id: client_info['id'])).to_not be_nil
           end
 
           it 'creates a service_dashboard_client.create event including the instance guid' do
@@ -627,6 +626,101 @@ module VCAP::Services::SSO
             expect(event.metadata).to include({
               'service_instance_guid' => service_instance.guid
             })
+          end
+
+          context 'but there is an orphaned claim' do
+            let!(:orphaned_claim) { VCAP::CloudController::ServiceDashboardClient.make(uaa_id: client_id) }
+
+            it 'creates a client in UAA' do
+              expect(client_manager).to receive(:modify_transaction) do |changeset|
+                expect(changeset.length).to eq 1
+                expect(changeset.first).to be_an_instance_of Commands::CreateClientCommand
+                expect(changeset[0].client_attrs).to eq client_info
+              end
+
+              manager.add_client_for_instance(client_info)
+            end
+
+            it 'updates the existing record to claim the client for the service instance' do
+              expect {
+                manager.add_client_for_instance client_info
+              }.not_to change { VCAP::CloudController::ServiceDashboardClient.count }
+
+              expect(VCAP::CloudController::ServiceDashboardClient.find(uaa_id: client_info['id']).id).to eq(orphaned_claim.id)
+            end
+
+            it 'creates a service_dashboard_client.create event including the instance guid' do
+              manager.add_client_for_instance client_info
+
+              event = VCAP::CloudController::Event.first(type: 'audit.service_dashboard_client.create', actee_name: client_id)
+              expect(event.actor_type).to eq('service_broker')
+              expect(event.actor).to eq(service_broker.guid)
+              expect(event.actor_name).to eq(service_broker.name)
+              expect(event.timestamp).to be
+              expect(event.actee).to eq(client_id)
+              expect(event.actee_type).to eq('service_dashboard_client')
+              expect(event.actee_name).to eq(client_id)
+              expect(event.space_guid).to eq('')
+              expect(event.organization_guid).to eq('')
+              expect(event.metadata).to include({
+                    'service_instance_guid' => service_instance.guid
+                  })
+            end
+          end
+
+          context 'but some other claimant has claimed the client' do
+            let!(:existing_claim) { VCAP::CloudController::ServiceDashboardClient.make(uaa_id: client_id, claimant_guid: service_broker.guid) }
+
+            it 'returns false and has an error' do
+              expect(VCAP::CloudController::ServiceDashboardClient.where(uaa_id: client_id).count).to eq(1)
+
+              result = manager.add_client_for_instance(client_info)
+
+              expect(result).to be_falsey
+              expect(manager.errors.messages).to include('Service dashboard client id must be unique')
+            end
+
+            it 'does not add a new claim' do
+              expect {
+                manager.add_client_for_instance(client_info)
+              }.not_to change { VCAP::CloudController::ServiceDashboardClient.count }
+            end
+          end
+        end
+
+        context 'when the client does exist in UAA' do
+          before do
+            allow(client_manager).to receive(:get_clients).and_return([{ 'client_id' => client_id }])
+          end
+
+          describe 'returns an error until we implement service instance dashboard updates' do
+            it 'populates errors on the manager and returns false' do
+              result = manager.add_client_for_instance(client_info)
+
+              expect(manager.errors.messages).to include('Service dashboard client id must be unique')
+              expect(result).to be_falsey
+            end
+          end
+        end
+
+        context 'when the cloud controller is not configured to modify sso_client' do
+          before do
+            allow(VCAP::CloudController::Config.config).to receive(:[]).with(anything).and_call_original
+            allow(VCAP::CloudController::Config.config).to receive(:[]).with(:uaa_client_name).and_return nil
+            allow(VCAP::CloudController::Config.config).to receive(:[]).with(:uaa_client_secret).and_return nil
+            allow(client_manager).to receive(:modify_transaction)
+          end
+
+          it 'does not create/update/delete any clients' do
+            manager.add_client_for_instance(client_info)
+            expect(client_manager).not_to have_received(:modify_transaction)
+          end
+
+          it 'returns false' do
+            expect(1).to eq(3)
+            expect(manager.add_client_for_instance(catalog)).to be_falsey
+            expect(manager.errors.messages).to include('Service dashboard client id must be unique')
+
           end
         end
       end

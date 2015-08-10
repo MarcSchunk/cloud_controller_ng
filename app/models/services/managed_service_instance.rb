@@ -54,7 +54,7 @@ module VCAP::CloudController
     IN_PROGRESS_STRING = 'in progress'.freeze
 
     many_to_one :service_plan
-    one_to_many :service_instance_dashboard_client
+    one_to_one :service_dashboard_client, primary_key: :guid, key: :claimant_guid
 
     export_attributes :name, :credentials, :service_plan_guid,
       :space_guid, :gateway_data, :dashboard_url, :type, :last_operation,
@@ -75,6 +75,7 @@ module VCAP::CloudController
     delegate :client, to: :service_plan
 
     add_association_dependencies service_instance_operation: :destroy
+    add_association_dependencies service_dashboard_client: :nullify
 
     def validation_policies
       if space

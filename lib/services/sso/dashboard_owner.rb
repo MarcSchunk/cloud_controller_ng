@@ -28,6 +28,14 @@ module VCAP::Services::SSO
       end
     end
 
+    def get_owner_key
+      if service_instance?
+        return 'managed_service_instance_id'
+      else
+        return 'broker_id'
+      end
+    end
+
     private
 
     attr_accessor :owner

@@ -79,8 +79,7 @@ module VCAP::Services::ServiceBrokers
 
         expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
                                                                  broker,
-                                                                 services_event_repository,
-                                                                 VCAP::CloudController::ServiceDashboardClient
+                                                                 services_event_repository
                                                                )
         expect(client_manager).to have_received(:synchronize_clients_with_catalog).with(catalog)
       end
@@ -223,7 +222,7 @@ module VCAP::Services::ServiceBrokers
         before do
           allow(catalog).to receive(:valid?).and_return(true)
           allow(client_manager).to receive(:synchronize_clients_with_catalog) {
-            VCAP::CloudController::ServiceDashboardClient.make(uaa_id: 'my-uaa-id', service_broker_id: broker.id)
+            VCAP::CloudController::ServiceDashboardClient.make(uaa_id: 'my-uaa-id', claimant_guid: broker.guid)
           }
           allow(service_manager).to receive(:sync_services_and_plans).and_raise(VCAP::Errors::ApiError.new_from_details('ServiceBrokerCatalogInvalid', 'omg it broke'))
         end
@@ -238,7 +237,7 @@ module VCAP::Services::ServiceBrokers
           }.to change { VCAP::CloudController::ServiceBroker.count }.by(0)
         end
 
-        it 'nullifies the service_broker_id field of the created dashboard clients' do
+        it 'nullifies the claimant_guid field of the created dashboard clients' do
           expect(VCAP::CloudController::ServiceDashboardClient.count).to eq(0)
           expect {
             begin
@@ -247,7 +246,7 @@ module VCAP::Services::ServiceBrokers
             end
           }.to change { VCAP::CloudController::ServiceDashboardClient.count }.by(1)
 
-          expect(VCAP::CloudController::ServiceDashboardClient.last.service_broker_id).to be_nil
+          expect(VCAP::CloudController::ServiceDashboardClient.last.claimant_guid).to be_nil
         end
       end
 
@@ -389,8 +388,7 @@ module VCAP::Services::ServiceBrokers
 
         expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
                                                                  broker,
-                                                                 services_event_repository,
-                                                                 VCAP::CloudController::ServiceDashboardClient
+                                                                 services_event_repository
                                                                )
         expect(client_manager).to have_received(:synchronize_clients_with_catalog).with(catalog)
       end

@@ -336,7 +336,7 @@ resource 'Events', type: [:api, :legacy_api] do
 
       VCAP::CloudController::ServiceDashboardClient.new(
         uaa_id: client_attrs['id'],
-        service_broker: VCAP::CloudController::ServiceBroker.make
+        claimant_guid: VCAP::CloudController::ServiceBroker.make.guid
       ).save
 
       dashboard_owner =  VCAP::Services::SSO::DashboardOwner.new test_broker
@@ -365,7 +365,7 @@ resource 'Events', type: [:api, :legacy_api] do
 
       VCAP::CloudController::ServiceDashboardClient.new(
         uaa_id: client_attrs['id'],
-        service_broker: VCAP::CloudController::ServiceBroker.make
+        claimant_guid: VCAP::CloudController::ServiceBroker.make.guid
       ).save
 
       dashboard_owner = VCAP::Services::SSO::DashboardOwner.new test_broker

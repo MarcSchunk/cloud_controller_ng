@@ -67,8 +67,7 @@ module VCAP::CloudController
 
           expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
               anything,
-              event_repository,
-              VCAP::CloudController::ServiceInstanceDashboardClient
+              event_repository
             )
           expect(client_manager).to have_received(:add_client_for_instance).with(hash_including({
                   'id' => 'client-id-1',
@@ -88,7 +87,6 @@ module VCAP::CloudController
               }
             }.to_json
           end
-          let(:client_manager) { instance_double(VCAP::Services::SSO::DashboardClientManager) }
 
           before do
             allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
@@ -103,9 +101,29 @@ module VCAP::CloudController
             expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
             expect(VCAP::Services::SSO::DashboardClientManager).not_to have_received(:new).with(
                 anything,
-                event_repository,
-                VCAP::CloudController::ServiceInstanceDashboardClient
+                event_repository
               )
+          end
+        end
+
+        context 'when the UAA client create fails' do
+          let(:errors) { VCAP::Services::ValidationErrors.new }
+          let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
+
+          before do
+            errors.add('Creation-failed')
+            allow(client_manager).to receive(:add_client_for_instance).and_return(false)
+            allow(client_manager).to receive(:errors).and_return(errors)
+            allow(logger).to receive(:error)
+            allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+          end
+
+          it 'attempts synchronous orphan mitigation' do
+            expect {
+              create_action.create(request_attrs, false)
+            }.to raise_error(VCAP::Errors::ApiError, 'Service instance dashboard client could not be modified: Creation-failed')
+
+            expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
           end
         end
       end
@@ -194,8 +212,7 @@ module VCAP::CloudController
 
             expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
               anything,
-              event_repository,
-              VCAP::CloudController::ServiceInstanceDashboardClient
+              event_repository
             )
             expect(client_manager).to have_received(:add_client_for_instance).with(hash_including({
               'id' => 'client-id-1',

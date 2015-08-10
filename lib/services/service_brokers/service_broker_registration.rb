@@ -82,8 +82,7 @@ module VCAP::Services::ServiceBrokers
     def client_manager
       @client_manager ||= VCAP::Services::SSO::DashboardClientManager.new(
         broker,
-        @services_event_repository,
-        VCAP::CloudController::ServiceDashboardClient
+        @services_event_repository
       )
     end
 

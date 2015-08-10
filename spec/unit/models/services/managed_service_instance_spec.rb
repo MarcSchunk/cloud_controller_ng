@@ -438,6 +438,24 @@ module VCAP::CloudController
         expect(ServiceInstance.find(guid: service_instance.guid)).to be_nil
         expect(ServiceInstanceOperation.find(guid: last_operation.guid)).to be_nil
       end
+
+      context 'when associated with a dashboard client' do
+        before do
+          ServiceDashboardClient.claim_client('some-uaa-id', service_instance)
+        end
+
+        it 'successfully destroys the service_instance' do
+          expect { service_instance.destroy }.
+            to change(ServiceInstance, :count).by(-1)
+        end
+
+        it 'sets the claimant_guid of the dashboard client to nil' do
+          client = ServiceDashboardClient.find_clients_claimed_by(service_instance).first
+          expect(client.claimant_guid).to eq(service_instance.guid)
+          service_instance.destroy
+          expect(client.reload.claimant_guid).to be_nil
+        end
+      end
     end
 
     describe '#enum_snapshots' do

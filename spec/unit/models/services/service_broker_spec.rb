@@ -107,11 +107,11 @@ module VCAP::CloudController
             to change(ServiceBroker, :count).by(-1)
         end
 
-        it 'sets the broker_id of the dashboard client to nil' do
-          client = ServiceDashboardClient.find_claimed_client(service_broker).first
-          expect(client.service_broker_id).to eq(service_broker.id)
+        it 'sets the claimant_guid of the dashboard client to nil' do
+          client = ServiceDashboardClient.find_clients_claimed_by(service_broker).first
+          expect(client.claimant_guid).to eq(service_broker.guid)
           service_broker.destroy
-          expect(client.reload.service_broker_id).to be_nil
+          expect(client.reload.claimant_guid).to be_nil
         end
       end
     end

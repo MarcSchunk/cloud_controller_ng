@@ -1,7 +1,7 @@
 module VCAP::CloudController
   class ServiceBroker < Sequel::Model
     one_to_many :services
-    one_to_many :service_dashboard_client
+    one_to_many :service_dashboard_client, key: :claimant_guid, primary_key: :guid
     many_to_one :space
 
     import_attributes :name, :broker_url, :auth_username, :auth_password
