@@ -1,76 +1,48 @@
 require 'actions/services/synchronous_orphan_mitigate'
+require 'jobs/services/instance_async_watcher'
 
 module VCAP::CloudController
-  class InvalidDashboardInfo < StandardError; end
+  class InvalidDashboardInfo < StandardError;
+  end
   class ServiceInstanceCreate
-    def initialize(services_event_repository, logger)
-      @services_event_repository = services_event_repository
+    def initialize(logger)
       @logger = logger
     end
 
     def create(request_attrs, accepts_incomplete)
-      request_params = request_attrs.except('parameters')
+      request_params   = request_attrs.except('parameters')
       arbitrary_params = request_attrs['parameters']
 
       service_instance = ManagedServiceInstance.new(request_params)
+      seed_operation   = { type: :create, state: 'in progress' }
 
       broker_response = service_instance.client.provision(
         service_instance,
-        accepts_incomplete: accepts_incomplete,
+        accepts_incomplete:   accepts_incomplete,
         arbitrary_parameters: arbitrary_params
       )
 
       begin
-        service_instance.save_with_new_operation(broker_response[:instance], broker_response[:last_operation])
+        service_instance.save_with_new_operation(broker_response[:instance], seed_operation)
       rescue => e
         mitigate_orphan(e, service_instance)
       end
 
-      if service_instance.operation_in_progress?
-        setup_async_job(request_attrs, service_instance)
-      end
-
       dashboard_client_info = broker_response[:dashboard_client]
+      audit_event_params    = VCAP::CloudController::Services::Instances::CreateEventParams.new(service_instance, request_attrs)
+      after_provision       = VCAP::CloudController::Services::Instances::AfterProvision.new(service_instance, audit_event_params, dashboard_client_info)
 
-      if dashboard_client_info
-        setup_dashboard(broker_response, dashboard_client_info, service_instance)
-      end
-
-      if !accepts_incomplete || service_instance.last_operation.state != 'in progress'
-        @services_event_repository.record_service_instance_event(:create, service_instance, request_attrs)
+      if broker_response[:last_operation][:state] == 'in progress'
+        setup_async_job(service_instance, after_provision)
+      else
+        after_provision.run(broker_response)
       end
 
       service_instance
     end
 
-    def setup_dashboard(broker_response, dashboard_client_info, service_instance)
-      if !broker_response[:instance].key?(:dashboard_url) || broker_response[:instance][:dashboard_url].nil?
-        log_message = 'Missing dashboard_url from broker response while creating a service instance with dashboard_client'
-        e = VCAP::Errors::ApiError.new_from_details('ServiceDashboardClientMissingUrl', log_message)
-        mitigate_orphan(e, service_instance, message: log_message)
-      end
-
-      client_manager = VCAP::Services::SSO::DashboardClientManager.new(
-        service_instance,
-        @services_event_repository)
-
-      client_add_result = client_manager.add_client_for_instance(dashboard_client_info)
-
-      if client_add_result == false
-        log_message = 'Unable to add service instance dashboard client to UAA'
-        e = VCAP::Errors::ApiError.new_from_details('ServiceInstanceDashboardClientFailure', client_manager.errors.messages.join(', '))
-        mitigate_orphan(e, service_instance, message: log_message)
-      end
-    end
-
-    def setup_async_job(request_attrs, service_instance)
-      job = VCAP::CloudController::Jobs::Services::ServiceInstanceStateFetch.new(
-        'service-instance-state-fetch',
-        service_instance.client.attrs,
-        service_instance.guid,
-        @services_event_repository,
-        request_attrs,
-      )
+    def setup_async_job(instance, after_provision)
+      job      = VCAP::CloudController::Jobs::Services::InstanceAsyncWatcher.new(instance.guid, after_provision)
       enqueuer = Jobs::Enqueuer.new(job, queue: 'cc-generic')
       enqueuer.enqueue
     end

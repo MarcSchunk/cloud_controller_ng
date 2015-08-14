@@ -77,7 +77,7 @@ module VCAP::CloudController
       space_not_found! unless space
       org_not_authorized! unless plan_visible_to_org?(organization, service_plan)
 
-      service_instance = ServiceInstanceCreate.new(@services_event_repository, logger).
+      service_instance = ServiceInstanceCreate.new(logger).
                              create(request_attrs, accepts_incomplete)
 
       [status_from_operation_state(service_instance),

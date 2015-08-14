@@ -591,7 +591,7 @@ module VCAP::CloudController
               get "/v2/service_instances/#{service_instance_guid}", {}, headers_for(developer)
               expect(last_response).to have_status_code 200
               expect(decoded_response['entity']['last_operation']['state']).to eq 'failed'
-              expect(decoded_response['entity']['last_operation']['description']).to match /Service Broker failed to provision within the required time/
+              expect(decoded_response['entity']['last_operation']['description']).to match /Service Broker failed to perform the operation within the required time/
             end
           end
 
@@ -620,9 +620,12 @@ module VCAP::CloudController
             it 'provisions a service instance' do
               service_instance = create_managed_service_instance
 
-              expect(service_instance.service_dashboard_client.uaa_id).to eq('client-id-1')
+              p 'omg what to do, is this a test the controller can even do?  async fo rizzle'
+
+              p decoded_response['entity']['last_operation']
 
               expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
+              expect(decoded_response['entity']['last_operation']['description']).to eq('dashboard_url')
               expect(last_response).to have_status_code(202)
             end
 

@@ -5,17 +5,21 @@ module VCAP::CloudController
   describe ServiceInstanceCreate do
     let(:event_repository) { double(:event_repository, record_service_instance_event: nil) }
     let(:logger) { double(:logger) }
-    subject(:create_action) { ServiceInstanceCreate.new(event_repository, logger) }
+    let(:after_provision) { double(:after_provision, run: nil) }
+    subject(:create_action) { ServiceInstanceCreate.new(logger) }
+
+    before do
+      allow(VCAP::CloudController::Services::Instances::AfterProvision).to receive(:new).and_return(after_provision)
+    end
 
     describe '#create' do
       let(:space) { Space.make }
       let(:service_plan) { ServicePlan.make }
       let(:request_attrs) do
         {
-            'space_guid' => space.guid,
-            'service_plan_guid' => service_plan.guid,
-            'name' => 'my-instance',
-            'dashboard_url' => 'test-dashboardurl.com'
+          'space_guid'        => space.guid,
+          'service_plan_guid' => service_plan.guid,
+          'name'              => 'my-instance',
         }
       end
 
@@ -46,96 +50,126 @@ module VCAP::CloudController
       context 'when the service instance create returns dashboard client credentials' do
         let(:body) do
           {
-            dashboard_url: 'http://example-dashboard.com/9189kdfsk0vfnku',
+            dashboard_url:    'http://example-dashboard.com/9189kdfsk0vfnku',
             dashboard_client: {
-              id: 'client-id-1',
-              secret: 'secret-1',
+              id:           'client-id-1',
+              secret:       'secret-1',
               redirect_uri: 'https://dashboard.service.com'
             }
           }.to_json
         end
-        let(:client_manager) { instance_double(VCAP::Services::SSO::DashboardClientManager) }
+        let(:accepts_incomplete) { false } # this value doesn't matter for this test
 
-        before do
-          stub_provision(service_plan.service.service_broker, body: body)
-          allow(client_manager).to receive(:add_client_for_instance)
-          allow(VCAP::Services::SSO::DashboardClientManager).to receive(:new).and_return(client_manager)
-        end
-
-        it 'creates a new UAA dashboard client' do
-          create_action.create(request_attrs, false)
-
-          expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
-              anything,
-              event_repository
-            )
-          expect(client_manager).to have_received(:add_client_for_instance).with(hash_including({
-                  'id' => 'client-id-1',
-                  'secret' => 'secret-1',
-                  'redirect_uri' => 'https://dashboard.service.com'
-                }))
-        end
-
-        context 'the dashboard_url is missing' do
-          let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
-          let(:body) do
-            {
-              dashboard_client: {
-                'space_guid' => space.guid,
-                'service_plan_guid' => service_plan.guid,
-                'name' => 'my-instance'
-              }
-            }.to_json
+        context 'and the broker response is synchronous with code 201' do
+          before do
+            stub_provision(service_plan.service.service_broker, body: body, status: 201)
           end
+
+          it 'runs the after provision' do
+            create_action.create(request_attrs, accepts_incomplete)
+
+            expect(after_provision).to have_received(:run)
+          end
+        end
+
+        context 'and the broker response is asynchronous with code 202' do
+          let(:accepts_incomplete) { true }
 
           before do
-            allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
-            allow(VCAP::Services::SSO::DashboardClientManager).to receive(:new).and_return(client_manager)
-            allow(logger).to receive(:error)
+            stub_provision(service_plan.service.service_broker, body: body, status: 202, accepts_incomplete: true)
           end
 
-          it 'attempts synchronous orphan mitigation and does not create a dashboard client' do
+          it 'creates a state fetch job with the after provision' do
+            allow(Jobs::Services::InstanceAsyncWatcher).to receive(:new).and_call_original
+
+            service_instance = nil
             expect {
-              create_action.create(request_attrs, false)
-            }.to raise_error(VCAP::Errors::ApiError, 'Service broker returned dashboard client configuration without a dashboard URL')
-            expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
-            expect(VCAP::Services::SSO::DashboardClientManager).not_to have_received(:new).with(
-                anything,
-                event_repository
-              )
+              service_instance = create_action.create(request_attrs, true)
+            }.to change { Delayed::Job.count }.from(0).to(1)
+
+            job = Delayed::Job.first
+            expect(job).to be_a_fully_wrapped_job_of(Jobs::Services::InstanceAsyncWatcher)
+
+            expect(Jobs::Services::InstanceAsyncWatcher).to have_received(:new).
+                with(service_instance.guid, after_provision)
           end
         end
 
-        context 'when the UAA client create fails' do
-          let(:errors) { VCAP::Services::ValidationErrors.new }
-          let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
 
-          before do
-            errors.add('Creation-failed')
-            allow(client_manager).to receive(:add_client_for_instance).and_return(false)
-            allow(client_manager).to receive(:errors).and_return(errors)
-            allow(logger).to receive(:error)
-            allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
-          end
-
-          it 'attempts synchronous orphan mitigation' do
-            expect {
-              create_action.create(request_attrs, false)
-            }.to raise_error(VCAP::Errors::ApiError, 'Service instance dashboard client could not be modified: Creation-failed')
-
-            expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
-          end
-        end
+        # it 'creates a new UAA dashboard client' do
+        #   create_action.create(request_attrs, false)
+        #
+        #   expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
+        #       anything,
+        #       event_repository
+        #     )
+        #   expect(client_manager).to have_received(:add_client_for_instance).with(hash_including({
+        #           'id' => 'client-id-1',
+        #           'secret' => 'secret-1',
+        #           'redirect_uri' => 'https://dashboard.service.com'
+        #         }))
+        # end
+        #
+        # context 'the dashboard_url is missing' do
+        #   let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
+        #   let(:body) do
+        #     {
+        #       dashboard_client: {
+        #         'space_guid' => space.guid,
+        #         'service_plan_guid' => service_plan.guid,
+        #         'name' => 'my-instance'
+        #       }
+        #     }.to_json
+        #   end
+        #
+        #   before do
+        #     allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+        #     allow(VCAP::Services::SSO::DashboardClientManager).to receive(:new).and_return(client_manager)
+        #     allow(logger).to receive(:error)
+        #   end
+        #
+        #   it 'attempts synchronous orphan mitigation and does not create a dashboard client' do
+        #     expect {
+        #       create_action.create(request_attrs, false)
+        #     }.to raise_error(VCAP::Errors::ApiError, 'Service broker returned dashboard client configuration without a dashboard URL')
+        #     expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
+        #     expect(VCAP::Services::SSO::DashboardClientManager).not_to have_received(:new).with(
+        #         anything,
+        #         event_repository
+        #       )
+        #   end
+        # end
+        #
+        # context 'when the UAA client create fails' do
+        #   let(:errors) { VCAP::Services::ValidationErrors.new }
+        #   let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
+        #
+        #   before do
+        #     errors.add('Creation-failed')
+        #     allow(client_manager).to receive(:add_client_for_instance).and_return(false)
+        #     allow(client_manager).to receive(:errors).and_return(errors)
+        #     allow(logger).to receive(:error)
+        #     allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+        #   end
+        #
+        #   it 'attempts synchronous orphan mitigation' do
+        #     expect {
+        #       create_action.create(request_attrs, false)
+        #     }.to raise_error(VCAP::Errors::ApiError, 'Service instance dashboard client could not be modified: Creation-failed')
+        #
+        #     expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
+        #   end
+        # end
       end
 
       context 'when there are arbitrary params' do
         let(:parameters) { { 'some-param' => 'some-value' } }
         let(:request_attrs) do
           {
-              'space_guid' => space.guid,
-              'service_plan_guid' => service_plan.guid,
-              'name' => 'my-instance',
-              'parameters' => parameters
+            'space_guid'        => space.guid,
+            'service_plan_guid' => service_plan.guid,
+            'name'              => 'my-instance',
+            'parameters'        => parameters
           }
         end
 
@@ -150,76 +184,17 @@ module VCAP::CloudController
           stub_provision(service_plan.service.service_broker, accepts_incomplete: true, status: 202)
         end
 
-        it 'enqueues a fetch job' do
+        it 'enqueues a async job' do
           expect {
             create_action.create(request_attrs, true)
           }.to change { Delayed::Job.count }.from(0).to(1)
 
-          expect(Delayed::Job.first).to be_a_fully_wrapped_job_of Jobs::Services::ServiceInstanceStateFetch
+          expect(Delayed::Job.first).to be_a_fully_wrapped_job_of Jobs::Services::InstanceAsyncWatcher
         end
 
         it 'does not log an audit event' do
           create_action.create(request_attrs, true)
           expect(event_repository).not_to have_received(:record_service_instance_event)
-        end
-
-        context 'when the service instance create returns dashboard client credentials' do
-          let(:body) do
-            {
-              dashboard_url: 'http://example-dashboard.com/9189kdfsk0vfnku',
-              dashboard_client: {
-                id: 'client-id-1',
-                secret: 'secret-1',
-                redirect_uri: 'https://dashboard.service.com'
-              }
-            }.to_json
-          end
-          let(:client_manager) { instance_double(VCAP::Services::SSO::DashboardClientManager) }
-
-          before do
-            stub_provision(service_plan.service.service_broker, body: body)
-            allow(client_manager).to receive(:add_client_for_instance)
-            allow(VCAP::Services::SSO::DashboardClientManager).to receive(:new).and_return(client_manager)
-          end
-
-          context 'the dashboard_url is missing' do
-            let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
-            let(:body) do
-              {
-                dashboard_client: {
-                  'space_guid' => space.guid,
-                  'service_plan_guid' => service_plan.guid,
-                  'name' => 'my-instance'
-                }
-              }.to_json
-            end
-
-            before do
-              allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
-              allow(logger).to receive(:error)
-            end
-
-            it 'attempts synchronous orphan mitigation' do
-              expect {
-                create_action.create(request_attrs, false)
-              }.to raise_error
-              expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
-            end
-          end
-
-          it 'creates a new UAA dashboard client' do
-            create_action.create(request_attrs, false)
-
-            expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
-              anything,
-              event_repository
-            )
-            expect(client_manager).to have_received(:add_client_for_instance).with(hash_including({
-              'id' => 'client-id-1',
-              'secret' => 'secret-1',
-              'redirect_uri' => 'https://dashboard.service.com'
-            }))
-          end
         end
       end
 
