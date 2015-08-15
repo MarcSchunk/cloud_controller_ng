@@ -22,24 +22,24 @@ module VCAP::CloudController
           response = client.fetch_service_instance_state(service_instance)
 
           case response[:last_operation][:state]
-            when 'succeeded'
-              logger.info("Async watch for instance #{@instance_guid} succeeded")
+          when 'succeeded'
+            logger.info("Async watch for instance #{@instance_guid} succeeded")
 
-              handler.run(response)
+            handler.run(response)
 
-            when 'failed'
-              logger.info("Async watch for instance #{@instance_guid} failed")
+          when 'failed'
+            logger.info("Async watch for instance #{@instance_guid} failed")
 
-              service_instance.save_and_update_operation(
-                last_operation: response[:last_operation].slice(:state, :description))
+            service_instance.save_and_update_operation(
+              last_operation: response[:last_operation].slice(:state, :description))
 
-            when 'in progress'
-              logger.info("Async watch for instance #{@instance_guid} is in progress")
+          when 'in progress'
+            logger.info("Async watch for instance #{@instance_guid} is in progress")
 
-              service_instance.save_and_update_operation(
-                last_operation: response[:last_operation].slice(:state, :description))
+            service_instance.save_and_update_operation(
+              last_operation: response[:last_operation].slice(:state, :description))
 
-              requeue_job(service_instance)
+            requeue_job(service_instance)
           end
 
         rescue HttpRequestError, HttpResponseError, Sequel::Error => e

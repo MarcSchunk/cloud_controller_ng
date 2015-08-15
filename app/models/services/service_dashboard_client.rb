@@ -30,7 +30,7 @@ module VCAP::CloudController
     end
 
     def unclaimed?
-      claimant_guid == nil
+      claimant_guid.nil?
     end
 
     def claimed_by?(claimant)

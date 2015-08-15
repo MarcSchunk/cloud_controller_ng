@@ -3,13 +3,15 @@ require 'actions/services/service_instance_create'
 
 module VCAP::CloudController
   describe ServiceInstanceCreate do
-    let(:event_repository) { double(:event_repository, record_service_instance_event: nil) }
     let(:logger) { double(:logger) }
     let(:after_provision) { double(:after_provision, run: nil) }
-    subject(:create_action) { ServiceInstanceCreate.new(logger) }
+    let(:warning_observer) { double(:warning_observer) }
+    let(:event_repository) { nil }
+    subject(:create_action) { ServiceInstanceCreate.new(logger, warning_observer, event_repository) }
 
     before do
       allow(VCAP::CloudController::Services::Instances::AfterProvision).to receive(:new).and_return(after_provision)
+      allow(VCAP::Services::SSO::DashboardClientManager).to receive(:cc_configured_to_modify_uaa_clients?).and_return(true)
     end
 
     describe '#create' do
@@ -40,11 +42,6 @@ module VCAP::CloudController
       it 'creates a new service instance operation' do
         create_action.create(request_attrs, false)
         expect(ManagedServiceInstance.last.last_operation).to eq(ServiceInstanceOperation.last)
-      end
-
-      it 'creates an audit event' do
-        create_action.create(request_attrs, false)
-        expect(event_repository).to have_received(:record_service_instance_event).with(:create, an_instance_of(ManagedServiceInstance), request_attrs)
       end
 
       context 'when the service instance create returns dashboard client credentials' do
@@ -95,71 +92,25 @@ module VCAP::CloudController
           end
         end
 
+        context 'and SSO is disabled in CC' do
+          before do
+            stub_provision(service_plan.service.service_broker, body: body, status: 201, accepts_incomplete: true)
+            allow(VCAP::Services::SSO::DashboardClientManager).to receive(:cc_configured_to_modify_uaa_clients?).and_return(false)
+            allow(warning_observer).to receive(:add_warning)
+          end
 
-        # it 'creates a new UAA dashboard client' do
-        #   create_action.create(request_attrs, false)
-        #
-        #   expect(VCAP::Services::SSO::DashboardClientManager).to have_received(:new).with(
-        #       anything,
-        #       event_repository
-        #     )
-        #   expect(client_manager).to have_received(:add_client_for_instance).with(hash_including({
-        #           'id' => 'client-id-1',
-        #           'secret' => 'secret-1',
-        #           'redirect_uri' => 'https://dashboard.service.com'
-        #         }))
-        # end
-        #
-        # context 'the dashboard_url is missing' do
-        #   let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
-        #   let(:body) do
-        #     {
-        #       dashboard_client: {
-        #         'space_guid' => space.guid,
-        #         'service_plan_guid' => service_plan.guid,
-        #         'name' => 'my-instance'
-        #       }
-        #     }.to_json
-        #   end
-        #
-        #   before do
-        #     allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
-        #     allow(VCAP::Services::SSO::DashboardClientManager).to receive(:new).and_return(client_manager)
-        #     allow(logger).to receive(:error)
-        #   end
-        #
-        #   it 'attempts synchronous orphan mitigation and does not create a dashboard client' do
-        #     expect {
-        #       create_action.create(request_attrs, false)
-        #     }.to raise_error(VCAP::Errors::ApiError, 'Service broker returned dashboard client configuration without a dashboard URL')
-        #     expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
-        #     expect(VCAP::Services::SSO::DashboardClientManager).not_to have_received(:new).with(
-        #         anything,
-        #         event_repository
-        #       )
-        #   end
-        # end
-        #
-        # context 'when the UAA client create fails' do
-        #   let(:errors) { VCAP::Services::ValidationErrors.new }
-        #   let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
-        #
-        #   before do
-        #     errors.add('Creation-failed')
-        #     allow(client_manager).to receive(:add_client_for_instance).and_return(false)
-        #     allow(client_manager).to receive(:errors).and_return(errors)
-        #     allow(logger).to receive(:error)
-        #     allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
-        #   end
-        #
-        #   it 'attempts synchronous orphan mitigation' do
-        #     expect {
-        #       create_action.create(request_attrs, false)
-        #     }.to raise_error(VCAP::Errors::ApiError, 'Service instance dashboard client could not be modified: Creation-failed')
-        #
-        #     expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
-        #   end
-        # end
+          it 'adds a warning to the warning observer' do
+            create_action.create(request_attrs, true)
+
+            expect(warning_observer).to have_received(:add_warning).with(/Warning: The broker requested a dashboard client./)
+          end
+
+          it 'nils the dashboard_client_info so no creation attempt occurs' do
+            create_action.create(request_attrs, true)
+
+            expect(VCAP::CloudController::Services::Instances::AfterProvision).to have_received(:new).with(anything, anything, nil, anything)
+          end
+        end
       end
 
       context 'when there are arbitrary params' do
@@ -190,11 +141,6 @@ module VCAP::CloudController
           }.to change { Delayed::Job.count }.from(0).to(1)
 
           expect(Delayed::Job.first).to be_a_fully_wrapped_job_of Jobs::Services::InstanceAsyncWatcher
-        end
-
-        it 'does not log an audit event' do
-          create_action.create(request_attrs, true)
-          expect(event_repository).not_to have_received(:record_service_instance_event)
         end
       end
 

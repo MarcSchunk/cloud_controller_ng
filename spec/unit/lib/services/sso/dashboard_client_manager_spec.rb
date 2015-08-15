@@ -716,11 +716,9 @@ module VCAP::Services::SSO
             expect(client_manager).not_to have_received(:modify_transaction)
           end
 
-          it 'returns false' do
-            expect(1).to eq(3)
-            expect(manager.add_client_for_instance(catalog)).to be_falsey
-            expect(manager.errors.messages).to include('Service dashboard client id must be unique')
-
+          it 'returns false and adds a warning' do
+            expect(manager.add_client_for_instance(client_info)).to be_falsey
+            expect(manager.warnings).to include(/Warning: The broker requested a dashboard client./)
           end
         end
       end

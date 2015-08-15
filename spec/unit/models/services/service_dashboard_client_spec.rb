@@ -66,7 +66,7 @@ module VCAP::CloudController
           ).to eq(client_id)
         end
       end
-      
+
       context 'when the client is already claimed by another claimant' do
         before do
           ServiceDashboardClient.claim_client(uaa_id, other_broker)
@@ -106,7 +106,7 @@ module VCAP::CloudController
       it 'removes the claim' do
         expect(ServiceDashboardClient.where(uaa_id: uaa_id).count).to eq(1)
 
-          ServiceDashboardClient.remove_claim(uaa_id)
+        ServiceDashboardClient.remove_claim(uaa_id)
 
         expect(ServiceDashboardClient.where(uaa_id: uaa_id).count).to eq(0)
       end

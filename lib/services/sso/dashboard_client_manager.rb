@@ -2,6 +2,12 @@ module VCAP::Services::SSO
   class DashboardClientManager
     attr_reader :errors, :warnings
 
+    INSTANCE_SSO_DISABLED = [
+      'Warning: The broker requested a dashboard client.',
+      'Auto-creation of OAuth2 clients has been disabled in this Cloud Foundry instance.',
+      'The service instance has been updated but its dashboard client configuration will be ignored.'
+    ].join(' ').freeze
+
     REQUESTED_FEATURE_DISABLED_WARNING = [
       'Warning: This broker includes configuration for a dashboard client.',
       'Auto-creation of OAuth2 clients has been disabled in this Cloud Foundry instance.',
@@ -21,7 +27,17 @@ module VCAP::Services::SSO
     end
 
     def add_client_for_instance(client_info)
+      if !cc_configured_to_modify_uaa_clients?
+        warnings << INSTANCE_SSO_DISABLED
+        return false
+      end
+
       dashboard_owner.is_instance = true
+
+      if !client_claimable?(VCAP::CloudController::ServiceDashboardClient.find_client_by_uaa_id(client_info['id']))
+        errors.add('Service dashboard client id must be unique')
+        return false
+      end
 
       existing_clients = fetch_clients_from_uaa([client_info['id']])
       if existing_clients.any?
@@ -29,14 +45,9 @@ module VCAP::Services::SSO
         return false
       end
 
-      if !client_claimable?(VCAP::CloudController::ServiceDashboardClient.find_client_by_uaa_id(client_info['id']))
-        errors.add('Service dashboard client id must be unique')
-        return false
-      end
-
       claim_clients_and_update_uaa([client_info], [], [])
 
-      return true
+      true
     end
 
     def synchronize_clients_with_catalog(catalog)
@@ -73,6 +84,12 @@ module VCAP::Services::SSO
 
     def has_warnings?
       !warnings.empty?
+    end
+
+    def self.cc_configured_to_modify_uaa_clients?
+      uaa_client = VCAP::CloudController::Config.config[:uaa_client_name]
+      uaa_client_secret = VCAP::CloudController::Config.config[:uaa_client_secret]
+      uaa_client && uaa_client_secret
     end
 
     private
@@ -136,12 +153,12 @@ module VCAP::Services::SSO
 
       uaa_changeset.each do |uaa_cmd|
         case uaa_cmd.uaa_command[:action]
-          when 'add'
-            @services_event_repository.record_service_dashboard_client_event(
-              :create, uaa_cmd.client_attrs, dashboard_owner)
-          when 'delete'
-            @services_event_repository.record_service_dashboard_client_event(
-              :delete, uaa_cmd.client_attrs, dashboard_owner)
+        when 'add'
+          @services_event_repository.record_service_dashboard_client_event(
+           :create, uaa_cmd.client_attrs, dashboard_owner)
+        when 'delete'
+          @services_event_repository.record_service_dashboard_client_event(
+            :delete, uaa_cmd.client_attrs, dashboard_owner)
         end
       end
     end
@@ -155,9 +172,7 @@ module VCAP::Services::SSO
     end
 
     def cc_configured_to_modify_uaa_clients?
-      uaa_client = VCAP::CloudController::Config.config[:uaa_client_name]
-      uaa_client_secret = VCAP::CloudController::Config.config[:uaa_client_secret]
-      uaa_client && uaa_client_secret
+      DashboardClientManager.cc_configured_to_modify_uaa_clients?
     end
   end
 end

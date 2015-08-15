@@ -4,14 +4,16 @@ module VCAP::CloudController
   module Services
     module Instances
       describe AfterProvision do
-        let(:after_provision) { AfterProvision.new(service_instance, audit_event_params, dashboard_client_info) }
+        let(:after_provision) { AfterProvision.new(service_instance, audit_event_params, dashboard_client_info, event_repository) }
         let(:service_instance) { ManagedServiceInstance.make }
         let(:audit_event_params) { nil }
         let(:broker_response) { nil }
+        let(:event_repository) { double(:event_repository, record_service_instance_event: nil) }
 
         before do
           service_instance.service_instance_operation = ServiceInstanceOperation.make
           service_instance.save
+          service_instance.update(dashboard_url: 'http://dashboard.com')
         end
 
         describe '#run' do
@@ -55,11 +57,31 @@ module VCAP::CloudController
                 expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
               end
             end
+
+            context 'when no dashboard_url is passed' do
+              before do
+                service_instance.update(dashboard_url: nil)
+              end
+
+              it 'enqueues an orphan mitigation job' do
+                after_provision.run(broker_response)
+
+                expect(Delayed::Job.count).to eq 1
+                expect(Delayed::Job.first).to be_a_fully_wrapped_job_of(VCAP::CloudController::Jobs::Services::DeleteOrphanedInstance)
+              end
+
+              it 'sets the last_operation to failed' do
+                after_provision.run(broker_response)
+
+                service_instance.reload
+                expect(service_instance.last_operation.state).to eq('failed')
+                expect(service_instance.last_operation.description).to eq('Missing dashboard_url from broker response; dashboard_url is required when dashboard_client is provided')
+              end
+            end
           end
 
           context 'when there is NO dashboard_client_info' do
             let(:dashboard_client_info) { nil }
-            let(:event_repository) { double(:event_repository, record_service_instance_event: nil) }
             let(:audit_event_params) { CreateEventParams.new(service_instance, { fake: 'params' }) }
             let(:broker_response) do
               {
@@ -69,10 +91,6 @@ module VCAP::CloudController
                   description: 'meow'
                 }
               }
-            end
-
-            before do
-              allow(after_provision).to receive(:services_event_repository).and_return(event_repository)
             end
 
             it 'creates an audit event' do

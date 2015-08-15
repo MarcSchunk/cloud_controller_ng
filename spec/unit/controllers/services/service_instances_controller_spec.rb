@@ -3,7 +3,7 @@ require 'spec_helper'
 module VCAP::CloudController
   describe VCAP::CloudController::ServiceInstancesController, :services do
     let(:service_broker_url_regex) { %r{http://auth_username:auth_password@example.com/v2/service_instances/(.*)} }
-    let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
+    let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, cleanup_failed_provision: nil) }
     let(:logger) { double(:logger) }
 
     describe 'Query Parameters' do
@@ -277,27 +277,15 @@ module VCAP::CloudController
               to_return(status: 200, body: '', headers: {})
           end
 
-          it 'provisions a service instance with a UAA client' do
-            service_instance = create_managed_service_instance(
-                    email: 'test@example.com',
-                    accepts_incomplete: false
+          it 'responds with a 202 and indication that dashboard provisioning is occurring' do
+            create_managed_service_instance(
+              email: 'test@example.com',
+              accepts_incomplete: false
             )
 
-            expect(service_instance.service_dashboard_client.uaa_id).to eq('client-id-1')
-
+            expect(last_response).to have_status_code(202)
             expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
-            expect(last_response).to have_status_code(201)
-          end
-
-          it 'creates a service_dashboard_client.create event' do
-            expect {
-              create_managed_service_instance(
-                email: 'test@example.com',
-                accepts_incomplete: false
-              )
-            }.to change {
-              VCAP::CloudController::Event.where(type: 'audit.service_dashboard_client.create').count
-            }.by 1
+            expect(decoded_response['entity']['last_operation']['description']).to eq('creating dashboard client')
           end
 
           context 'dashboard_url is not passed' do
@@ -312,22 +300,21 @@ module VCAP::CloudController
             end
 
             before do
-              allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+              allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(mock_orphan_mitigator)
               allow(logger).to receive(:error)
             end
 
-            it 'rejects the service instance by initiating orphan mitigation' do
+            it 'returns a 202 and a instance with error description on the operation' do
               service_instance = create_managed_service_instance(
                 email: 'test@example.com',
                 accepts_incomplete: false
               )
 
               expect(service_instance.service_dashboard_client).to be_nil
-              expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
-
-              expect(decoded_response['entity']).to be_nil
-              expect(last_response).to have_status_code(502)
-              expect(last_response.body).to include('Service broker returned dashboard client configuration without a dashboard URL')
+              expect(last_response).to have_status_code(202)
+              expected_description = 'Missing dashboard_url from broker response; dashboard_url is required when dashboard_client is provided'
+              expect(decoded_response['entity']['last_operation']['description']).to eq(expected_description)
+              expect(decoded_response['entity']['last_operation']['state']).to eq('failed')
             end
           end
         end
@@ -444,7 +431,7 @@ module VCAP::CloudController
               stub_request(:put, service_broker_url_regex).
                 with(headers: { 'Accept' => 'application/json' }).
                 to_return(status: 422, body: { error: 'AsyncRequired' }.to_json, headers: { 'Content-Type' => 'application/json' })
-              allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+              allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(mock_orphan_mitigator)
               allow(logger).to receive(:error)
             end
 
@@ -594,70 +581,6 @@ module VCAP::CloudController
               expect(decoded_response['entity']['last_operation']['description']).to match /Service Broker failed to perform the operation within the required time/
             end
           end
-
-          context 'create with a dashboard client' do
-            let(:response_body) do
-              {
-                dashboard_client: {
-                  id: 'client-id-1',
-                  secret: 'secret-1',
-                  redirect_uri: 'https://dashboard.service.com'
-                },
-                dashboard_url: 'the dashboard_url'
-              }.to_json
-            end
-
-            before do
-              body = { token_type: '', access_token: '' }.to_json
-              stub_request(:post, 'http://cc-service-dashboards:some-sekret@localhost:8080/uaa/oauth/token').
-                to_return(status: 200, body: body, headers: { content_type: 'application/json' })
-              stub_request(:get, 'http://localhost:8080/uaa/oauth/clients/client-id-1').
-                to_return(status: 404, body: nil, headers: { content_type: 'application/json' })
-              stub_request(:post, 'http://localhost:8080/uaa/oauth/clients/tx/modify').
-                to_return(status: 200, body: '', headers: {})
-            end
-
-            it 'provisions a service instance' do
-              service_instance = create_managed_service_instance
-
-              p 'omg what to do, is this a test the controller can even do?  async fo rizzle'
-
-              p decoded_response['entity']['last_operation']
-
-              expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
-              expect(decoded_response['entity']['last_operation']['description']).to eq('dashboard_url')
-              expect(last_response).to have_status_code(202)
-            end
-
-            context 'dashboard_url is not passed' do
-              let(:logger) { double(:logger) }
-              let(:response_body) do
-                {
-                  dashboard_client: {
-                    'id' => 'client-id-1',
-                    'secret' => 'secret-1',
-                    'redirect_uri' => 'https://dashboard.service.com'
-                  }
-                }.to_json
-              end
-
-              before do
-                allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
-                allow(logger).to receive(:error)
-              end
-
-              it 'rejects the service instance by initiating orphan mitigation' do
-                service_instance = create_managed_service_instance
-
-                expect(service_instance.service_dashboard_client).to be_nil
-                expect(mock_orphan_mitigator).to have_received(:attempt_deprovision_instance)
-
-                expect(decoded_response['entity']).to be_nil
-                expect(last_response).to have_status_code(502)
-                expect(last_response.body).to include('Service broker returned dashboard client configuration without a dashboard URL')
-              end
-            end
-          end
         end
 
         context 'when the client explicitly does not request accepts_incomplete provisioning' do
@@ -697,7 +620,7 @@ module VCAP::CloudController
             )
           end
           let(:response_code) { 409 }
-          let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, attempt_deprovision_instance: nil) }
+          let(:mock_orphan_mitigator) { double(:mock_orphan_mitigator, cleanup_failed_provision: nil) }
           let(:body) do
             {
               dashboard_url: 'http://example-dashboard.com/9189kdfsk0vfnku',
@@ -710,7 +633,7 @@ module VCAP::CloudController
           end
 
           before do
-            allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+            allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(mock_orphan_mitigator)
             allow(logger).to receive(:error)
           end
 
@@ -866,7 +789,7 @@ module VCAP::CloudController
             end
 
             before do
-              allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+              allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(VCAP::Services::ServiceBrokers::V2::OrphanMitigator.new)
               allow(logger).to receive(:error)
             end
 
@@ -889,7 +812,7 @@ module VCAP::CloudController
               let(:delete_request_status) { 202 }
 
               before do
-                allow(SynchronousOrphanMitigate).to receive(:new).and_return(mock_orphan_mitigator)
+                allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(VCAP::Services::ServiceBrokers::V2::OrphanMitigator.new)
                 allow(logger).to receive(:error)
               end
 

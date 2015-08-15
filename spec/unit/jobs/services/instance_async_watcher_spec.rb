@@ -9,7 +9,7 @@ module VCAP::CloudController
         let(:service_instance) do
           operation = ServiceInstanceOperation.make
 
-          service_instance                            = ManagedServiceInstance.make(service_plan: ServicePlan.make())
+          service_instance                            = ManagedServiceInstance.make(service_plan: ServicePlan.make)
           service_instance.service_instance_operation = operation
           service_instance.save
 
@@ -35,11 +35,6 @@ module VCAP::CloudController
           VCAP::CloudController::Jobs::Services::InstanceAsyncWatcher.new(
             service_instance.guid,
             handler
-          # name,
-          # client_attrs,
-          # service_instance.guid,
-          # service_event_repository,
-          # request_attrs,
           )
         end
 
@@ -72,21 +67,6 @@ module VCAP::CloudController
               expect(job.poll_interval).to eq 24.hours
             end
           end
-
-          # context 'when the caller provides repository_opts instead of a repository' do
-          #   it 'uses the opts to construct a repository' do
-          #     job =  VCAP::CloudController::Jobs::Services::ServiceInstanceStateFetch.new(
-          #         name,
-          #         client_attrs,
-          #         service_instance.guid,
-          #         nil,
-          #         request_attrs,
-          #         nil,
-          #         service_event_repository_opts
-          #     )
-          #     expect(job.services_event_repository).to be_a Repositories::Services::EventRepository
-          #   end
-          # end
         end
 
         describe '#perform' do

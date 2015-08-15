@@ -77,7 +77,7 @@ module VCAP::CloudController
       space_not_found! unless space
       org_not_authorized! unless plan_visible_to_org?(organization, service_plan)
 
-      service_instance = ServiceInstanceCreate.new(logger).
+      service_instance = ServiceInstanceCreate.new(logger, self, @services_event_repository).
                              create(request_attrs, accepts_incomplete)
 
       [status_from_operation_state(service_instance),
@@ -325,7 +325,7 @@ module VCAP::CloudController
     end
 
     def status_from_operation_state(service_instance)
-      if service_instance.last_operation.state == 'in progress'
+      if service_instance.last_operation.state != 'succeeded'
         state = HTTP::ACCEPTED
       else
         state = HTTP::CREATED

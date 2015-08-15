@@ -2,11 +2,13 @@ require 'actions/services/synchronous_orphan_mitigate'
 require 'jobs/services/instance_async_watcher'
 
 module VCAP::CloudController
-  class InvalidDashboardInfo < StandardError;
+  class InvalidDashboardInfo < StandardError
   end
   class ServiceInstanceCreate
-    def initialize(logger)
-      @logger = logger
+    def initialize(logger, warning_observer, services_event_repository)
+      @logger           = logger
+      @warning_observer = warning_observer
+      @services_event_repository = services_event_repository
     end
 
     def create(request_attrs, accepts_incomplete)
@@ -29,8 +31,13 @@ module VCAP::CloudController
       end
 
       dashboard_client_info = broker_response[:dashboard_client]
-      audit_event_params    = VCAP::CloudController::Services::Instances::CreateEventParams.new(service_instance, request_attrs)
-      after_provision       = VCAP::CloudController::Services::Instances::AfterProvision.new(service_instance, audit_event_params, dashboard_client_info)
+      if dashboard_client_info && !VCAP::Services::SSO::DashboardClientManager.cc_configured_to_modify_uaa_clients?
+        @warning_observer.add_warning(VCAP::Services::SSO::DashboardClientManager::INSTANCE_SSO_DISABLED)
+        dashboard_client_info = nil
+      end
+
+      audit_event_params = VCAP::CloudController::Services::Instances::CreateEventParams.new(service_instance, request_attrs)
+      after_provision    = VCAP::CloudController::Services::Instances::AfterProvision.new(service_instance, audit_event_params, dashboard_client_info,  @services_event_repository)
 
       if broker_response[:last_operation][:state] == 'in progress'
         setup_async_job(service_instance, after_provision)
