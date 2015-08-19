@@ -255,7 +255,7 @@ module VCAP::CloudController
           expect(event).to match_service_instance(instance)
         end
 
-        context 'create with a dashboard client' do
+        context 'when the broker requests a dashboard client' do
           let(:response_body) do
             {
               dashboard_client: {
@@ -277,18 +277,18 @@ module VCAP::CloudController
               to_return(status: 200, body: '', headers: {})
           end
 
-          it 'responds with a 202 and indication that dashboard provisioning is occurring' do
-            create_managed_service_instance(
+          it 'responds with a 201 and creates the client' do
+            service_instance = create_managed_service_instance(
               email: 'test@example.com',
               accepts_incomplete: false
             )
 
-            expect(last_response).to have_status_code(202)
+            expect(service_instance.service_dashboard_client).not_to be_nil
+            expect(last_response).to have_status_code(201)
             expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
-            expect(decoded_response['entity']['last_operation']['description']).to eq('creating dashboard client')
           end
 
-          context 'dashboard_url is not passed' do
+          context 'broker returns dashboard client but dashboard_url is not passed' do
             let(:response_body) do
               {
                 dashboard_client: {
@@ -304,17 +304,15 @@ module VCAP::CloudController
               allow(logger).to receive(:error)
             end
 
-            it 'returns a 202 and a instance with error description on the operation' do
+            it 'returns a 502' do
               service_instance = create_managed_service_instance(
                 email: 'test@example.com',
                 accepts_incomplete: false
               )
 
               expect(service_instance.service_dashboard_client).to be_nil
-              expect(last_response).to have_status_code(202)
-              expected_description = 'Missing dashboard_url from broker response; dashboard_url is required when dashboard_client is provided'
-              expect(decoded_response['entity']['last_operation']['description']).to eq(expected_description)
-              expect(decoded_response['entity']['last_operation']['state']).to eq('failed')
+              expect(last_response).to have_status_code(502)
+              expect(last_response).to eq('some body')
             end
           end
         end
@@ -579,6 +577,79 @@ module VCAP::CloudController
               expect(last_response).to have_status_code 200
               expect(decoded_response['entity']['last_operation']['state']).to eq 'failed'
               expect(decoded_response['entity']['last_operation']['description']).to match /Service Broker failed to perform the operation within the required time/
+            end
+          end
+
+          context 'when the broker requests a dashboard client' do
+            let(:response_body) do
+              {
+                dashboard_client: {
+                  id: 'client-id-1',
+                  secret: 'secret-1',
+                  redirect_uri: 'https://dashboard.service.com'
+                },
+                dashboard_url: 'the dashboard_url'
+              }.to_json
+            end
+
+            before do
+              body = { token_type: '', access_token: '' }.to_json
+              stub_request(:post, 'http://cc-service-dashboards:some-sekret@localhost:8080/uaa/oauth/token').
+                to_return(status: 200, body: body, headers: { content_type: 'application/json' })
+              stub_request(:get, 'http://localhost:8080/uaa/oauth/clients/client-id-1').
+                to_return(status: 404, body: nil, headers: { content_type: 'application/json' })
+              stub_request(:post, 'http://localhost:8080/uaa/oauth/clients/tx/modify').
+                to_return(status: 200, body: '', headers: {})
+            end
+
+            it 'responds with a 202 and indication that dashboard provisioning is occurring' do
+              create_managed_service_instance(
+                email: 'test@example.com',
+                accepts_incomplete: true
+              )
+
+              expect(1).to eq(3)
+
+              expect(last_response).to have_status_code(202)
+              expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
+              expect(decoded_response['entity']['last_operation']['description']).to eq('creating dashboard client')
+            end
+
+            context 'dashboard_url is not passed' do
+              let(:response_body) do
+                {
+                  dashboard_client: {
+                    'id' => 'client-id-1',
+                    'secret' => 'secret-1',
+                    'redirect_uri' => 'https://dashboard.service.com'
+                  }
+                }.to_json
+              end
+
+              before do
+                allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(mock_orphan_mitigator)
+                allow(logger).to receive(:error)
+              end
+
+              it 'returns a 202 and a instance with error description on the operation' do
+                service_instance = create_managed_service_instance(
+                  email: 'test@example.com',
+                  accepts_incomplete: true
+                )
+
+
+                expect(1).to eq(3)
+
+                expect(last_response).to have_status_code(202)
+                expect(decoded_response['entity']['dashboard_url']).to eq('the dashboard_url')
+                expect(decoded_response['entity']['last_operation']['description']).to eq('creating dashboard client')
+
+                # expect(service_instance.service_dashboard_client).to be_nil
+                # expect(last_response).to have_status_code(202)
+                # expected_description = 'Missing dashboard_url from broker response; dashboard_url is required when dashboard_client is provided'
+                # expect(decoded_response['entity']['last_operation']['description']).to eq(expected_description)
+                # expect(decoded_response['entity']['last_operation']['state']).to eq('failed')
+              end
             end
           end
         end
