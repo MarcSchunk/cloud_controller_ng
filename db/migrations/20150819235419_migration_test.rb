@@ -1,5 +1,7 @@
 Sequel.migration do
   change do
-    drop_table(:apps)
+    create_table :aaaaaa do
+      primary_key :id
+    end
   end
 end
