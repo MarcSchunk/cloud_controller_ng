@@ -44,7 +44,7 @@ class DbConfig
   end
 
   def default_connection_string(db_type)
-    "#{default_connection_prefix(db_type)}/#{default_name}"
+    "#{default_connection_prefix('mysql')}/#{default_name}"
   end
 
   def default_connection_prefix(db_type)

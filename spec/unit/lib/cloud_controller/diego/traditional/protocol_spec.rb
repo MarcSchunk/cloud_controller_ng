@@ -16,7 +16,7 @@ module VCAP::CloudController
 
         let(:default_health_check_timeout) { 99 }
         let(:staging_config) { TestConfig.config[:staging] }
-        let(:common_protocol) { double(:common_protocol) }
+        let(:egress_rules) { double(:egress_rules) }
         let(:app) do
           AppFactory.make(
             health_check_timeout: default_health_check_timeout,
@@ -25,12 +25,12 @@ module VCAP::CloudController
         end
 
         subject(:protocol) do
-          Protocol.new(blobstore_url_generator, common_protocol)
+          Protocol.new(blobstore_url_generator, egress_rules)
         end
 
         before do
-          allow(common_protocol).to receive(:staging_egress_rules).and_return(['staging_egress_rule'])
-          allow(common_protocol).to receive(:running_egress_rules).with(app).and_return(['running_egress_rule'])
+          allow(egress_rules).to receive(:staging).and_return(['staging_egress_rule'])
+          allow(egress_rules).to receive(:running).with(app).and_return(['running_egress_rule'])
         end
 
         describe '#stage_app_request' do

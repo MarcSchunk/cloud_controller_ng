@@ -15,10 +15,10 @@ module VCAP::CloudController
       let(:calculated_disk_limit) { 64 }
       let(:environment_builder) { double(:environment_builder) }
       let(:environment_builder_response) { 'environment_builder_response' }
-      let(:package) { PackageModel.make(app: app, state: PackageModel::READY_STATE) }
-      let(:app)  { AppModel.make(space: space) }
       let(:space)  { Space.make }
       let(:org) { space.organization }
+      let(:app)  { AppModel.make(space_guid: space.guid) }
+      let(:package) { PackageModel.make(app_guid: app.guid, state: PackageModel::READY_STATE) }
       let(:buildpack)  { Buildpack.make }
       let(:staging_message) { DropletCreateMessage.create_from_http_request(opts) }
       let(:stack) { 'trusty32' }
@@ -26,7 +26,7 @@ module VCAP::CloudController
       let(:disk_limit) { 32100 }
       let(:buildpack_git_url) { 'anything' }
       let(:stagers) { double(:stagers) }
-      let(:stager) { double(:stager) }
+      let(:stager) { instance_double(Diego::Stager) }
       let(:opts) do
         {
           stack:             stack,
@@ -39,7 +39,7 @@ module VCAP::CloudController
 
       before do
         buildpack_info.buildpack_record = buildpack
-        allow(stagers).to receive(:stager_for_package).with(package).and_return(stager)
+        allow(stagers).to receive(:stager_for_package).and_return(stager)
         allow(stager).to receive(:stage_package)
         allow(memory_limit_calculator).to receive(:get_limit).with(memory_limit, space, org).and_return(calculated_mem_limit)
         allow(disk_limit_calculator).to receive(:get_limit).with(disk_limit).and_return(calculated_disk_limit)
@@ -48,7 +48,7 @@ module VCAP::CloudController
 
       it 'creates a droplet' do
         expect {
-          droplet = action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+          droplet = action.stage(package, buildpack_info, staging_message, stagers)
           expect(droplet.state).to eq(DropletModel::PENDING_STATE)
           expect(droplet.package_guid).to eq(package.guid)
           expect(droplet.buildpack).to eq(buildpack.name)
@@ -59,24 +59,24 @@ module VCAP::CloudController
       end
 
       it 'initiates a staging request' do
-        droplet = action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
-        expect(stager).to have_received(:stage_package).with(droplet, stack, calculated_mem_limit, calculated_disk_limit, buildpack.key, nil)
+        droplet = action.stage(package, buildpack_info, staging_message, stagers)
+        expect(stager).to have_received(:stage_package).with(package, droplet, stack, calculated_mem_limit, calculated_disk_limit, buildpack.key, nil)
       end
 
       it 'has a default value for stack' do
         expected_stack = Stack.default.name
         staging_message.stack = nil
 
-        droplet = action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+        droplet = action.stage(package, buildpack_info, staging_message, stagers)
 
-        expect(stager).to have_received(:stage_package).with(droplet, expected_stack, calculated_mem_limit, calculated_disk_limit, buildpack.key, nil)
+        expect(stager).to have_received(:stage_package).with(package, droplet, expected_stack, calculated_mem_limit, calculated_disk_limit, buildpack.key, nil)
       end
 
       context 'when the package is not type bits' do
         let(:package) { PackageModel.make(app: app, type: PackageModel::DOCKER_TYPE) }
         it 'raises an InvalidPackage exception' do
           expect {
-            action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+            action.stage(package, buildpack_info, staging_message, stagers)
           }.to raise_error(PackageStageAction::InvalidPackage)
         end
       end
@@ -85,7 +85,7 @@ module VCAP::CloudController
         let(:package) { PackageModel.make(app: app, state: PackageModel::PENDING_STATE) }
         it 'raises an InvalidPackage exception' do
           expect {
-            action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+            action.stage(package, buildpack_info, staging_message, stagers)
           }.to raise_error(PackageStageAction::InvalidPackage)
         end
       end
@@ -97,10 +97,10 @@ module VCAP::CloudController
         end
 
         it 'does not include the buildpack guid in the droplet and staging message' do
-          droplet = action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+          droplet = action.stage(package, buildpack_info, staging_message, stagers)
 
           expect(droplet.buildpack_guid).to be_nil
-          expect(stager).to have_received(:stage_package).with(droplet, stack, calculated_mem_limit, calculated_disk_limit, nil, buildpack_git_url)
+          expect(stager).to have_received(:stage_package).with(package, droplet, stack, calculated_mem_limit, calculated_disk_limit, nil, buildpack_git_url)
         end
       end
 
@@ -112,7 +112,7 @@ module VCAP::CloudController
 
           it 'raises PackageStageAction::DiskLimitExceeded' do
             expect {
-              action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+              action.stage(package, buildpack_info, staging_message, stagers)
             }.to raise_error(PackageStageAction::DiskLimitExceeded)
           end
         end
@@ -126,7 +126,7 @@ module VCAP::CloudController
 
           it 'raises PackageStageAction::SpaceQuotaExceeded' do
             expect {
-              action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+              action.stage(package, buildpack_info, staging_message, stagers)
             }.to raise_error(PackageStageAction::SpaceQuotaExceeded)
           end
         end
@@ -138,7 +138,7 @@ module VCAP::CloudController
 
           it 'raises PackageStageAction::OrgQuotaExceeded' do
             expect {
-              action.stage(package, app, space, org, buildpack_info, staging_message, stagers)
+              action.stage(package, buildpack_info, staging_message, stagers)
             }.to raise_error(PackageStageAction::OrgQuotaExceeded)
           end
         end

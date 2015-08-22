@@ -4,7 +4,7 @@ require 'cloud_controller/diego/traditional/protocol'
 require 'cloud_controller/diego/traditional/staging_completion_handler'
 require 'cloud_controller/diego/docker/protocol'
 require 'cloud_controller/diego/docker/staging_completion_handler'
-require 'cloud_controller/diego/common/protocol'
+require 'cloud_controller/diego/egress_rules'
 
 module VCAP::CloudController
   class Stagers
@@ -35,39 +35,40 @@ module VCAP::CloudController
     end
 
     def stager_for_package(package)
-      dea_stager(package)
+      diego_stager(package: package)
     end
 
     def stager_for_app(app)
-      app.diego? ? diego_stager(app) : dea_stager(app)
+      app.diego? ? diego_stager(app: app) : dea_stager
     end
 
     private
 
-    def dea_stager(app)
-      Dea::Stager.new(app, @config, @message_bus, @dea_pool, @stager_pool, @runners)
+    def dea_stager
+      Dea::Stager.new(@config, @message_bus, @dea_pool, @stager_pool, @runners)
     end
 
-    def diego_stager(app)
-      app.docker_image.present? ? diego_docker_stager(app) : diego_traditional_stager(app)
+    def diego_stager(app: nil, package: nil)
+      app = app || package.app
+      app.docker_image.present? ? diego_docker_stager : diego_traditional_stager
     end
 
-    def diego_docker_stager(app)
+    def diego_docker_stager
       dependency_locator = CloudController::DependencyLocator.instance
       stager_client = dependency_locator.stager_client
-      protocol = Diego::Docker::Protocol.new(Diego::Common::Protocol.new)
+      protocol = Diego::Docker::Protocol.new(Diego::EgressRules.new)
       messenger = Diego::Messenger.new(stager_client, @message_bus, protocol)
       completion_handler = Diego::Docker::StagingCompletionHandler.new(@runners)
-      Diego::Stager.new(app, messenger, completion_handler, staging_opts)
+      Diego::Stager.new(messenger, completion_handler, staging_opts)
     end
 
-    def diego_traditional_stager(app)
+    def diego_traditional_stager
       dependency_locator = CloudController::DependencyLocator.instance
-      protocol = Diego::Traditional::Protocol.new(dependency_locator.blobstore_url_generator(true), Diego::Common::Protocol.new)
+      protocol = Diego::Traditional::Protocol.new(dependency_locator.blobstore_url_generator(true), Diego::EgressRules.new)
       stager_client = dependency_locator.stager_client
       messenger = Diego::Messenger.new(stager_client, @message_bus, protocol)
       completion_handler = Diego::Traditional::StagingCompletionHandler.new(@runners)
-      Diego::Stager.new(app, messenger, completion_handler, staging_opts)
+      Diego::Stager.new(messenger, completion_handler, staging_opts)
     end
 
     def staging_opts

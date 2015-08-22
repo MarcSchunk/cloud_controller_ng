@@ -3,7 +3,6 @@ require 'spec_helper'
 module VCAP::CloudController
   describe Stagers do
     let(:config) { TestConfig.config }
-
     let(:message_bus)  { instance_double(CfMessageBus::MessageBus) }
     let(:dea_pool)     { instance_double(Dea::Pool) }
     let(:stager_pool)  { instance_double(Dea::StagerPool) }
@@ -146,7 +145,7 @@ module VCAP::CloudController
         end
 
         it 'finds a diego stager' do
-          expect(stagers).to receive(:diego_stager).with(app).and_call_original
+          expect(stagers).to receive(:diego_stager).with(app: app).and_call_original
           expect(stager).to be_a(Diego::Stager)
         end
 
@@ -167,7 +166,7 @@ module VCAP::CloudController
           let(:docker_image) { 'foobar' }
 
           it 'finds a diego stager' do
-            expect(stagers).to receive(:diego_stager).with(app).and_call_original
+            expect(stagers).to receive(:diego_stager).with(app: app).and_call_original
             expect(stager).to be_a(Diego::Stager)
           end
         end
@@ -179,19 +178,19 @@ module VCAP::CloudController
         end
 
         it 'finds a DEA backend' do
-          expect(stagers).to receive(:dea_stager).with(app).and_call_original
+          expect(stagers).to receive(:dea_stager).and_call_original
           expect(stager).to be_a(Dea::Stager)
         end
       end
     end
 
     describe '#stager_for_package' do
-      let(:package) { double(:package) }
+      let(:package) { double(:package, app: app) }
 
-      context 'when staging with the DEA' do
-        it 'finds a DEA backend' do
+      context 'when staging with Diego' do
+        it 'finds a Diego backend' do
           stager = stagers.stager_for_package(package)
-          expect(stager).to be_a(Dea::Stager)
+          expect(stager).to be_a(Diego::Stager)
         end
       end
     end

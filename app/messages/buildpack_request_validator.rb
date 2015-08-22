@@ -6,6 +6,8 @@ module VCAP::CloudController
 
     validate :buildpack_is_a_uri_or_nil, unless: :buildpack_exists_in_db?
 
+    #FIXME: A validator shouldn't set instance states, return buildpack_urls when #to_s is called, etc.
+
     def buildpack_is_a_uri_or_nil
       return if buildpack.nil?
       if /\A#{URI.regexp}\Z/.match(buildpack)

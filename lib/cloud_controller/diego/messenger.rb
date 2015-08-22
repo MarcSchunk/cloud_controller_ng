@@ -7,18 +7,18 @@ module VCAP::CloudController
         @protocol = protocol
       end
 
-      def send_stage_request(app, staging_config)
-        logger.info('staging.begin', app_guid: app.guid)
+      def send_stage_request(resource, staging_config)
+        logger.info('staging.begin', resource_guid: resource.guid)
 
-        staging_guid = StagingGuid.from_app(app)
-        staging_message = @protocol.stage_app_request(app, staging_config)
+        staging_guid = StagingGuid.from(resource)
+        staging_message = @protocol.stage_resource_request(resource_details, staging_config)
         @stager_client.stage(staging_guid, staging_message)
       end
 
-      def send_stop_staging_request(app)
-        logger.info('staging.stop', app_guid: app.guid)
+      def send_stop_staging_request(resource)
+        logger.info('staging.stop', resource_guid: resource.guid)
 
-        staging_guid = StagingGuid.from_app(app)
+        staging_guid = StagingGuid.from(resource)
         @stager_client.stop_staging(staging_guid)
       end
 

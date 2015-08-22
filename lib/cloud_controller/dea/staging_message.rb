@@ -74,7 +74,7 @@ module VCAP::CloudController
       def initialize(package, droplet_guid, log_id, stack, memory_limit,
                      disk_limit, buildpack_key, buildpack_git_url, config,
                      environment_variables, blobstore_url_generator)
-        @app_guid              = package.app_guid
+        @app_guid              = package.app_guid # v3 app guid
         @package               = package
         @stack                 = stack
         @memory_limit          = memory_limit

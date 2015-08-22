@@ -57,6 +57,7 @@ RSpec.configure do |rspec_config|
   rspec_config.before(:all) { WebMock.disable_net_connect!(allow: 'codeclimate.com') }
   rspec_config.before(:all, type: :integration) { WebMock.allow_net_connect! }
   rspec_config.after(:all, type: :integration) { WebMock.disable_net_connect!(allow: 'codeclimate.com') }
+  rspec_config.after(:all, type: :integration) { ENV['DB'] ||= %w[mysql postgres].sample unless ENV['DB'] }
 
   rspec_config.expose_current_running_example_as :example # Can be removed when we upgrade to rspec 3
 

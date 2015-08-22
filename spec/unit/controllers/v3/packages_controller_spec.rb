@@ -826,10 +826,10 @@ module VCAP::CloudController
       end
 
       describe 'handling action errors' do
-        let(:package_stage_action) { double(:package_stage_action) }
+        let(:package_stage_action) { double(PackageStageAction.new) }
 
         before do
-          allow(packages_controller).to receive(:package_stage_action).and_return(package_stage_action)
+          allow(PackageStageAction).to receive(:new).and_return(package_stage_action)
         end
 
         context 'when the request package is invalid' do
