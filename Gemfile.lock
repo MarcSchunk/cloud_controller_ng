@@ -375,7 +375,7 @@ DEPENDENCIES
   delayed_job_sequel!
   eventmachine (~> 1.0.0)
   fakefs
-  fog (~> 1.33)
+  fog
   httpclient
   i18n
   loggregator_emitter (~> 4.0)
